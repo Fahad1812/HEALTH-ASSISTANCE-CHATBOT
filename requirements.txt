@@ -2,4 +2,4 @@ flask
 openai
 huggingface_hub
 python-dotenv
-gunicorn app:app
+gunicorn
