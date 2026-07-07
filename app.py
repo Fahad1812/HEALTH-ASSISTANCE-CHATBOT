@@ -11,33 +11,31 @@ from huggingface_hub.utils import HfHubHTTPError
 
 load_dotenv()
 
-# ---- Configuration ----
-PROVIDER = os.getenv("PROVIDER", "huggingface")
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini") 
+# ---- Configuration (all from environment / .env, never hard-coded) ----
+PROVIDER = os.getenv("PROVIDER", "huggingface")           # "openai" or "huggingface"
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 HF_MODEL = os.getenv("HF_MODEL", "Qwen/Qwen2.5-7B-Instruct")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-HF_API_KEY = os.getenv("HF_TOKEN")
+HF_API_KEY = os.getenv("HF_API_KEY")
+
+if PROVIDER == "openai" and not OPENAI_API_KEY:
+    raise RuntimeError("PROVIDER is 'openai' but OPENAI_API_KEY is not set. Add it to your .env file.")
+if PROVIDER == "huggingface" and not HF_API_KEY:
+    raise RuntimeError("PROVIDER is 'huggingface' but HF_API_KEY is not set. Add it to your .env file.")
+
 
 class ChatBot:
+    """Same chatbot logic as the notebook: works with OpenAI or Hugging Face,
+    keeps trimmed conversation history, retries on rate limits/timeouts,
+    and returns clear messages on auth/model/limit errors instead of crashing."""
+
     def __init__(self, provider="huggingface", model=None, system_prompt=None,
                  max_history_turns=10, max_retries=3, max_tokens=500):
         self.provider = provider
         self.max_history_turns = max_history_turns
         self.max_retries = max_retries
         self.max_tokens = max_tokens
-        
-        # --- ENHANCED FOOTBALL SYSTEM PROMPT (Prompt Engineering Added) ---
-        default_football_prompt = (
-            "You are a strict Football (Soccer) Expert Assistant. "
-            "You must ONLY answer questions related to football, such as players, clubs, matches, leagues, history, rules, and tactics. "
-            "If a user asks about ANY other topic, politely refuse and state you only answer football-related queries. "
-            "Do not provide code or answer math questions. "
-            "\n\nRESPONSE GUIDELINES: "
-            "1. ADAPTIVE DETAIL: Match the detail level of the user's query. If the user asks a short, brief question, give a concise and direct answer. If they ask a detailed question or ask 'explain', provide an in-depth and comprehensive explanation. "
-            "2. FOLLOW-UP QUESTION: At the very end of every valid football-related response, ALWAYS ask exactly ONE engaging follow-up question related to the topic discussed to keep the conversation going (e.g., 'Would you like to know more about [related topic]?', or 'Who do you think is the best player in this team?')."
-        )
-        
-        self.system_prompt = system_prompt or default_football_prompt
+        self.system_prompt = system_prompt or "You are a helpful, concise assistant."
         self.history = [{"role": "system", "content": self.system_prompt}]
 
         if provider == "openai":
@@ -46,6 +44,8 @@ class ChatBot:
         elif provider == "huggingface":
             self.model = model or HF_MODEL
             self.client = InferenceClient(model=self.model, token=HF_API_KEY)
+        else:
+            raise ValueError("provider must be 'openai' or 'huggingface'")
 
     def _trim_history(self):
         system_msg = self.history[0]
@@ -55,102 +55,154 @@ class ChatBot:
             convo = convo[-max_msgs:]
         self.history = [system_msg] + convo
 
-    def send(self, user_message):
+    def _call_openai(self, messages):
+        resp = self.client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            max_tokens=self.max_tokens,
+            temperature=0.7,
+        )
+        choice = resp.choices[0]
+        return choice.message.content, choice.finish_reason
+
+    def _call_huggingface(self, messages):
+        resp = self.client.chat_completion(
+            messages=messages,
+            max_tokens=self.max_tokens,
+            temperature=0.7,
+        )
+        choice = resp.choices[0]
+        finish_reason = getattr(choice, "finish_reason", None)
+        return choice.message.content, finish_reason
+
+    def send(self, user_message, prompting_mode="zero-shot"):
         self.history.append({"role": "user", "content": user_message})
         self._trim_history()
+
+        # Dynamic context framing based on prompting technique selection
+        system_msg = self.history[0]
+        convo_history = self.history[1:]
+        
+        examples = []
+        if prompting_mode == "one-shot":
+            examples = [
+                {"role": "user", "content": "Optimize this code: 'for i in range(len(x)): print(x[i])'"},
+                {"role": "assistant", "content": "Optimized approach:\n```python\nfor item in x:\n    print(item)\n```"}
+            ]
+        elif prompting_mode == "few-shot":
+            examples = [
+                {"role": "user", "content": "Optimize this code: 'for i in range(len(x)): print(x[i])'"},
+                {"role": "assistant", "content": "Optimized approach:\n```python\nfor item in x:\n    print(item)\n```"},
+                {"role": "user", "content": "Explain recursion in one sentence."},
+                {"role": "assistant", "content": "Recursion is a programming method where a function calls itself to solve smaller instances of the same problem."}
+            ]
+
+        # Combine system prompt + custom dynamic shots + current conversation context
+        payload_messages = [system_msg] + examples + convo_history
 
         last_error = None
         for attempt in range(1, self.max_retries + 1):
             try:
                 if self.provider == "openai":
-                    resp = self.client.chat.completions.create(
-                        model=self.model, messages=self.history, max_tokens=self.max_tokens, temperature=0.7,
-                    )
-                    reply = resp.choices[0].message.content
+                    reply, finish_reason = self._call_openai(payload_messages)
                 else:
-                    resp = self.client.chat_completion(
-                        messages=self.history, max_tokens=self.max_tokens, temperature=0.7,
-                    )
-                    reply = resp.choices[0].message.content
+                    reply, finish_reason = self._call_huggingface(payload_messages)
 
                 self.history.append({"role": "assistant", "content": reply})
+
+                if finish_reason == "length":
+                    reply += ("\n\n⚠️ [Response was cut off — it hit the max_tokens limit "
+                              f"({self.max_tokens}). Increase max_tokens for longer replies.]")
                 return reply
+
+            except RateLimitError:
+                last_error = "rate limit"
+            except APITimeoutError:
+                last_error = "timeout"
+            except AuthenticationError:
+                self.history.pop()
+                return "❌ Authentication failed. Double-check your OpenAI API key."
+            except HfHubHTTPError as e:
+                status = getattr(e.response, "status_code", None)
+                if status == 401:
+                    self.history.pop()
+                    return "❌ Authentication failed. Double-check your Hugging Face API token."
+                elif status == 403:
+                    self.history.pop()
+                    return ("❌ 403 Forbidden: your token doesn't have permission to call Inference "
+                            "Providers. Create a new token at huggingface.co/settings/tokens and pick "
+                            "type 'Read', or enable 'Make calls to Inference Providers' on a fine-grained token.")
+                elif status == 429:
+                    last_error = "rate limit"
+                elif status == 400 and "model_not_supported" in str(e):
+                    self.history.pop()
+                    return (f"❌ Model '{self.model}' isn't available through any Inference Provider "
+                            "right now. Try 'Qwen/Qwen2.5-7B-Instruct' or check the model's page on "
+                            "huggingface.co for an 'Inference Providers' section.")
+                else:
+                    self.history.pop()
+                    return f"❌ Hugging Face API error ({status}): {e}"
+            except APIError as e:
+                self.history.pop()
+                return f"❌ OpenAI API error: {e}"
             except Exception as e:
-                last_error = str(e)
-                time.sleep(2 ** attempt)
+                self.history.pop()
+                return f"❌ Unexpected error: {e}"
+
+            wait = 2 ** attempt
+            time.sleep(wait)
 
         self.history.pop()
-        return f"❌ Failed: {last_error}"
+        return f"❌ Failed after {self.max_retries} retries due to repeated {last_error} errors."
+
+    def reset(self):
+        self.history = [{"role": "system", "content": self.system_prompt}]
+
 
 # ---- Flask app ----
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "dev-only-change-me")
 
-# Structure: { session_id: { 'conversations': { convo_id: ChatBot_Instance } } }
-user_sessions = {}
+chat_sessions = {}
 
-def get_user_data():
+
+def get_bot():
     if "sid" not in session:
         session["sid"] = str(uuid.uuid4())
     sid = session["sid"]
-    if sid not in user_sessions:
-        user_sessions[sid] = {'conversations': {}}
-    return user_sessions[sid]
+    if sid not in chat_sessions:
+        chat_sessions[sid] = ChatBot(
+            provider=PROVIDER,
+            system_prompt="You are a friendly and knowledgeable assistant. Keep answers concise.",
+        )
+    return chat_sessions[sid]
+
 
 @app.route("/")
 def index():
     return render_template("index.html", provider=PROVIDER)
 
-# ---- CONVERSATION APIs ----
-@app.route("/api/conversations", methods=["GET"])
-def list_conversations():
-    data = get_user_data()
-    convos = []
-    for cid, bot in data['conversations'].items():
-        # Title generate karein (pehlay message ke shuru ke alfaaz)
-        title = "New Chat"
-        if len(bot.history) > 1:
-            title = bot.history[1]['content'][:25] + "..."
-        convos.append({"id": cid, "title": title})
-    return jsonify({"conversations": list(reversed(convos))}) # Newest first
 
-@app.route("/api/conversations", methods=["POST"])
-def create_conversation():
-    data = get_user_data()
-    cid = str(uuid.uuid4())
-    data['conversations'][cid] = ChatBot(provider=PROVIDER)
-    return jsonify({"id": cid})
-
-@app.route("/api/conversations/<cid>", methods=["DELETE"])
-def delete_conversation(cid):
-    data = get_user_data()
-    if cid in data['conversations']:
-        del data['conversations'][cid]
-    return jsonify({"status": "deleted"})
-
-# ---- CHAT & HISTORY APIs (Updated with convo_id) ----
 @app.route("/chat", methods=["POST"])
 def chat():
-    req_data = request.get_json(silent=True) or {}
-    message = (req_data.get("message") or "").strip()
-    convo_id = req_data.get("convo_id")
+    data = request.get_json(silent=True) or {}
+    message = (data.get("message") or "").strip()
+    prompting_mode = data.get("prompting_mode", "zero-shot")
     
-    data = get_user_data()
-    if not convo_id or convo_id not in data['conversations']:
-        return jsonify({"error": "Invalid conversation ID"}), 400
+    if not message:
+        return jsonify({"error": "Empty message"}), 400
         
-    bot = data['conversations'][convo_id]
-    reply = bot.send(message)
+    bot = get_bot()
+    reply = bot.send(message, prompting_mode=prompting_mode)
     return jsonify({"reply": reply})
 
-@app.route("/history", methods=["GET"])
-def history():
-    convo_id = request.args.get("convo_id")
-    data = get_user_data()
-    if not convo_id or convo_id not in data['conversations']:
-        return jsonify({"history": []})
-    bot = data['conversations'][convo_id]
-    return jsonify({"history": bot.history[1:]})
+
+@app.route("/reset", methods=["POST"])
+def reset():
+    bot = get_bot()
+    bot.reset()
+    return jsonify({"status": "cleared"})
+
 
 if __name__ == "__main__":
     app.run(debug=True, port=5000)
