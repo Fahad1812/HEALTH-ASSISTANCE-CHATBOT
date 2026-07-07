@@ -1,29 +1,45 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Chatbot</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Football AI Assistant</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-  <div class="chat-wrap">
-    <header class="chat-header">
-      <div>
-        <h1>Chatbot</h1>
-        <span class="provider-badge">{{ provider }}</span>
-      </div>
-      <button id="reset-btn" title="Clear conversation">Reset</button>
-    </header>
+    <div class="app-container">
+        
+        <div class="sidebar">
+            <button id="new-chat-btn" class="new-chat-btn">⚽ New Match (Chat)</button>
+            <div id="chat-list" class="chat-list">
+                </div>
+        </div>
 
-    <div id="messages" class="messages"></div>
+        <div class="chat-wrap">
+            
+            <div class="chat-header">
+                <h1>Football Assistant 
+                    <span class="provider-badge">{{ provider }}</span>
+                </h1>
+            </div>
+            
+            <div id="messages" class="messages">
+                </div>
+            
+            <form id="chat-form" class="chat-form">
+                <input 
+                    type="text" 
+                    id="user-input" 
+                    placeholder="Ask about clubs, players, tactics, or leagues..." 
+                    autocomplete="off" 
+                    required 
+                />
+                <button type="submit" id="send-btn">Send</button>
+            </form>
+            
+        </div>
+    </div>
 
-    <form id="chat-form" class="chat-form">
-      <input id="user-input" type="text" placeholder="Type a message..." autocomplete="off" required>
-      <button type="submit">Send</button>
-    </form>
-  </div>
-
-  <script src="{{ url_for('static', filename='script.js') }}"></script>
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
 </body>
 </html>
