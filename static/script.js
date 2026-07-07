@@ -5,7 +5,7 @@ const resetBtn = document.getElementById("reset-btn");
 const modeDisplay = document.getElementById("current-mode-display");
 const radioButtons = document.querySelectorAll('input[name="prompting-tech"]');
 
-// Handle prompting technique display state updates
+// Handle active prompting mode label switches
 radioButtons.forEach(radio => {
   radio.addEventListener("change", (e) => {
     const formattedValue = e.target.value.charAt(0).toUpperCase() + e.target.value.slice(1);
@@ -36,7 +36,7 @@ formEl.addEventListener("submit", async (e) => {
   inputEl.value = "";
   inputEl.disabled = true;
 
-  const typingEl = addMessage("Typing...", "typing");
+  const typingEl = addMessage("Analyzing tactics...", "typing");
   const selectedMode = getSelectedPromptingMode();
 
   try {
@@ -59,7 +59,7 @@ formEl.addEventListener("submit", async (e) => {
     }
   } catch (err) {
     typingEl.remove();
-    addMessage("Network error — is the server running?", "error");
+    addMessage("Network error — is the pitch server running?", "error");
   } finally {
     inputEl.disabled = false;
     inputEl.focus();
@@ -69,7 +69,8 @@ formEl.addEventListener("submit", async (e) => {
 resetBtn.addEventListener("click", async () => {
   await fetch("/reset", { method: "POST" });
   messagesEl.innerHTML = "";
-  addMessage("Conversation cleared. Say hi!", "bot");
+  addMessage("Pitch cleared! Ask me anything about football.", "bot");
 });
 
-addMessage("Hi! Ask me anything.", "bot");
+// Football Specific Welcome Message
+addMessage("Welcome to the Football AI Arena! ⚽ Ask me anything about rules, tactics, leagues, players, or historical stats.", "bot");
