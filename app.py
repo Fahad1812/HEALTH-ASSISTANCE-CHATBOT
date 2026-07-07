@@ -26,17 +26,18 @@ class ChatBot:
         self.max_retries = max_retries
         self.max_tokens = max_tokens
         
-        # --- STRICT HEALTH SYSTEM PROMPT ---
-        default_health_prompt = (
-            "You are a strict Health and Wellness Assistant. "
-            "You must ONLY answer questions related to health, fitness, nutrition, medicine, and human biology. "
-            "If a user asks about ANY other topic (e.g., programming, politics, general knowledge, movies, etc.), "
-            "you must politely refuse to answer and explicitly state that you are programmed to answer only health-related queries. "
+        # --- ENHANCED FOOTBALL SYSTEM PROMPT (Prompt Engineering Added) ---
+        default_football_prompt = (
+            "You are a strict Football (Soccer) Expert Assistant. "
+            "You must ONLY answer questions related to football, such as players, clubs, matches, leagues, history, rules, and tactics. "
+            "If a user asks about ANY other topic, politely refuse and state you only answer football-related queries. "
             "Do not provide code or answer math questions. "
-            "Always remind the user that you are an AI, not a certified doctor, and they should consult a professional for serious medical conditions."
+            "\n\nRESPONSE GUIDELINES: "
+            "1. ADAPTIVE DETAIL: Match the detail level of the user's query. If the user asks a short, brief question, give a concise and direct answer. If they ask a detailed question or ask 'explain', provide an in-depth and comprehensive explanation. "
+            "2. FOLLOW-UP QUESTION: At the very end of every valid football-related response, ALWAYS ask exactly ONE engaging follow-up question related to the topic discussed to keep the conversation going (e.g., 'Would you like to know more about [related topic]?', or 'Who do you think is the best player in this team?')."
         )
         
-        self.system_prompt = system_prompt or default_health_prompt
+        self.system_prompt = system_prompt or default_football_prompt
         self.history = [{"role": "system", "content": self.system_prompt}]
 
         if provider == "openai":
@@ -127,7 +128,7 @@ def delete_conversation(cid):
         del data['conversations'][cid]
     return jsonify({"status": "deleted"})
 
-# ---- CHAT & HISTORY APIs ----
+# ---- CHAT & HISTORY APIs (Updated with convo_id) ----
 @app.route("/chat", methods=["POST"])
 def chat():
     req_data = request.get_json(silent=True) or {}
