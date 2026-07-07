@@ -25,9 +25,8 @@ if PROVIDER == "huggingface" and not HF_API_KEY:
 
 
 class ChatBot:
-    """Same chatbot logic as the notebook: works with OpenAI or Hugging Face,
-    keeps trimmed conversation history, retries on rate limits/timeouts,
-    and returns clear messages on auth/model/limit errors instead of crashing."""
+    """Football-only Chatbot logic: strict system prompt constraints,
+    football context shots, and robust API error handling."""
 
     def __init__(self, provider="huggingface", model=None, system_prompt=None,
                  max_history_turns=10, max_retries=3, max_tokens=500):
@@ -35,7 +34,15 @@ class ChatBot:
         self.max_history_turns = max_history_turns
         self.max_retries = max_retries
         self.max_tokens = max_tokens
-        self.system_prompt = system_prompt or "You are a helpful, concise assistant."
+        
+        # Strict Football-only System Prompt
+        self.system_prompt = system_prompt or (
+            "You are an expert Football (Soccer) Assistant. You ONLY answer questions related to football, "
+            "including leagues, players, matches, tactics, rules, trophies, and football history. "
+            "If the user asks about ANY topic outside of football (such as coding, math, general science, cooking, "
+            "or other sports like cricket/basketball), you must politely decline and state that you can only "
+            "discuss football."
+        )
         self.history = [{"role": "system", "content": self.system_prompt}]
 
         if provider == "openai":
@@ -79,25 +86,26 @@ class ChatBot:
         self.history.append({"role": "user", "content": user_message})
         self._trim_history()
 
-        # Dynamic context framing based on prompting technique selection
         system_msg = self.history[0]
         convo_history = self.history[1:]
         
+        # Football-specific context framing based on dynamic mode selection
         examples = []
         if prompting_mode == "one-shot":
             examples = [
-                {"role": "user", "content": "Optimize this code: 'for i in range(len(x)): print(x[i])'"},
-                {"role": "assistant", "content": "Optimized approach:\n```python\nfor item in x:\n    print(item)\n```"}
+                {"role": "user", "content": "Who won the FIFA World Cup in 2022?"},
+                {"role": "assistant", "content": "Argentina won the 2022 FIFA World Cup, defeating France on penalties after an epic 3-3 draw."}
             ]
         elif prompting_mode == "few-shot":
             examples = [
-                {"role": "user", "content": "Optimize this code: 'for i in range(len(x)): print(x[i])'"},
-                {"role": "assistant", "content": "Optimized approach:\n```python\nfor item in x:\n    print(item)\n```"},
-                {"role": "user", "content": "Explain recursion in one sentence."},
-                {"role": "assistant", "content": "Recursion is a programming method where a function calls itself to solve smaller instances of the same problem."}
+                {"role": "user", "content": "Who won the FIFA World Cup in 2022?"},
+                {"role": "assistant", "content": "Argentina won the 2022 FIFA World Cup, defeating France on penalties after an epic 3-3 draw."},
+                {"role": "user", "content": "Can you explain the offside rule briefly?"},
+                {"role": "assistant", "content": "A player is offside if they are nearer to the opponent's goal line than both the ball and the second-last opponent at the exact moment the ball is passed to them."},
+                {"role": "user", "content": "Write a Python script to filter numbers."},
+                {"role": "assistant", "content": "❌ I apologize, but I am a Football Assistant and can only answer questions related to football rules, matches, players, and history."}
             ]
 
-        # Combine system prompt + custom dynamic shots + current conversation context
         payload_messages = [system_msg] + examples + convo_history
 
         last_error = None
@@ -111,8 +119,7 @@ class ChatBot:
                 self.history.append({"role": "assistant", "content": reply})
 
                 if finish_reason == "length":
-                    reply += ("\n\n⚠️ [Response was cut off — it hit the max_tokens limit "
-                              f"({self.max_tokens}). Increase max_tokens for longer replies.]")
+                    reply += ("\n\n⚠️ [Response was cut off — hit max_tokens limit. Increase it for longer replies.]")
                 return reply
 
             except RateLimitError:
@@ -129,16 +136,12 @@ class ChatBot:
                     return "❌ Authentication failed. Double-check your Hugging Face API token."
                 elif status == 403:
                     self.history.pop()
-                    return ("❌ 403 Forbidden: your token doesn't have permission to call Inference "
-                            "Providers. Create a new token at huggingface.co/settings/tokens and pick "
-                            "type 'Read', or enable 'Make calls to Inference Providers' on a fine-grained token.")
+                    return "❌ 403 Forbidden: Check your Hugging Face token permissions."
                 elif status == 429:
                     last_error = "rate limit"
                 elif status == 400 and "model_not_supported" in str(e):
                     self.history.pop()
-                    return (f"❌ Model '{self.model}' isn't available through any Inference Provider "
-                            "right now. Try 'Qwen/Qwen2.5-7B-Instruct' or check the model's page on "
-                            "huggingface.co for an 'Inference Providers' section.")
+                    return f"❌ Model '{self.model}' isn't available right now through Inference Providers."
                 else:
                     self.history.pop()
                     return f"❌ Hugging Face API error ({status}): {e}"
@@ -171,10 +174,7 @@ def get_bot():
         session["sid"] = str(uuid.uuid4())
     sid = session["sid"]
     if sid not in chat_sessions:
-        chat_sessions[sid] = ChatBot(
-            provider=PROVIDER,
-            system_prompt="You are a friendly and knowledgeable assistant. Keep answers concise.",
-        )
+        chat_sessions[sid] = ChatBot(provider=PROVIDER)
     return chat_sessions[sid]
 
 
