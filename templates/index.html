@@ -3,19 +3,18 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Chatbot</title>
+  <title>Football AI Assistant</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
   <div class="app-container">
-    <!-- Prompting Mode Panel -->
     <aside class="prompting-sidebar">
       <div class="sidebar-header">
-        <span class="flask-icon">🧪</span>
+        <span class="flask-icon">⚽</span>
         <h2>Prompting Mode</h2>
       </div>
       
-      <p class="prompting-desc">Choose how many examples to show the AI before your question:</p>
+      <p class="prompting-desc">Choose how many tactical examples to inject into the AI context before your question:</p>
       
       <div class="radio-group">
         <label class="radio-option">
@@ -42,20 +41,19 @@
       </div>
     </aside>
 
-    <!-- Main Chat Window -->
     <main class="chat-wrap">
       <header class="chat-header">
         <div>
-          <h1>Chatbot</h1>
+          <h1>Football AI Assistant</h1>
           <span class="provider-badge">{{ provider }}</span>
         </div>
-        <button id="reset-btn" title="Clear conversation">Reset</button>
+        <button id="reset-btn" title="Clear tactical conversation">Reset Pitch</button>
       </header>
 
       <div id="messages" class="messages"></div>
 
       <form id="chat-form" class="chat-form">
-        <input id="user-input" type="text" placeholder="Type a message..." autocomplete="off" required>
+        <input id="user-input" type="text" placeholder="Ask about tactics, players, rules, or history..." autocomplete="off" required>
         <button type="submit">Send</button>
       </form>
     </main>
